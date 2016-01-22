@@ -67,6 +67,7 @@ func main() {
 		dnsConfig          dnsConfig
 		datapathName       string
 		trustedSubnetStr   string
+		dbPrefix           string
 
 		defaultDockerHost = "unix:///var/run/docker.sock"
 	)
@@ -100,6 +101,7 @@ func main() {
 	mflag.DurationVar(&dnsConfig.ClientTimeout, []string{"-dns-fallback-timeout"}, nameserver.DefaultClientTimeout, "timeout for fallback DNS requests")
 	mflag.StringVar(&dnsConfig.EffectiveListenAddress, []string{"-dns-effective-listen-address"}, "", "address DNS will actually be listening, after Docker port mapping")
 	mflag.StringVar(&datapathName, []string{"-datapath"}, "", "ODP datapath name")
+	mflag.StringVar(&dbPrefix, []string{"-db-prefix"}, "weave", "pathname/prefix of filename to store data")
 
 	mflag.StringVar(&trustedSubnetStr, []string{"-trusted-subnets"}, "", "Command separated list of trusted subnets in CIDR notation")
 
@@ -187,7 +189,7 @@ func main() {
 		defaultSubnet address.CIDR
 	)
 	if iprangeCIDR != "" {
-		allocator, defaultSubnet = createAllocator(router.Router, iprangeCIDR, ipsubnetCIDR, determineQuorum(peerCount, peers), isKnownPeer)
+		allocator, defaultSubnet = createAllocator(router.Router, iprangeCIDR, ipsubnetCIDR, determineQuorum(peerCount, peers), dbPrefix, isKnownPeer)
 		observeContainers(allocator)
 	} else if peerCount > 0 {
 		Log.Fatal("--init-peer-count flag specified without --ipalloc-range")
@@ -307,7 +309,7 @@ func parseAndCheckCIDR(cidrStr string) address.CIDR {
 	return cidr
 }
 
-func createAllocator(router *mesh.Router, ipRangeStr string, defaultSubnetStr string, quorum uint, isKnownPeer func(mesh.PeerName) bool) (*ipam.Allocator, address.CIDR) {
+func createAllocator(router *mesh.Router, ipRangeStr string, defaultSubnetStr string, quorum uint, dbPrefix string, isKnownPeer func(mesh.PeerName) bool) (*ipam.Allocator, address.CIDR) {
 	ipRange := parseAndCheckCIDR(ipRangeStr)
 	defaultSubnet := ipRange
 	if defaultSubnetStr != "" {
@@ -316,7 +318,7 @@ func createAllocator(router *mesh.Router, ipRangeStr string, defaultSubnetStr st
 			Log.Fatalf("IP address allocation default subnet %s does not overlap with allocation range %s", defaultSubnet, ipRange)
 		}
 	}
-	allocator := ipam.NewAllocator(router.Ourself.Peer.Name, router.Ourself.Peer.UID, router.Ourself.Peer.NickName, ipRange.Range(), quorum, isKnownPeer)
+	allocator := ipam.NewAllocator(router.Ourself.Peer.Name, router.Ourself.Peer.UID, router.Ourself.Peer.NickName, ipRange.Range(), quorum, dbPrefix, isKnownPeer)
 
 	allocator.SetInterfaces(router.NewGossip("IPallocation", allocator))
 	allocator.Start()
