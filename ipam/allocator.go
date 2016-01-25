@@ -819,7 +819,7 @@ func (alloc *Allocator) removeAllOwned(ident string) []address.Address {
 			a = append(a, address.FromIP4(k))
 			return nil
 		})
-		return v.Delete([]byte(ident))
+		return b.DeleteBucket([]byte(ident))
 	}))
 	return a
 }
