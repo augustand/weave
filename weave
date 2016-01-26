@@ -123,6 +123,7 @@ exec_remote() {
         -e WEAVE_PORT \
         -e WEAVE_CONTAINER_NAME \
         -e WEAVE_MTU \
+        -e WEAVE_LOCAL_HOST \
         -e WEAVE_NO_FASTDP \
         -e WEAVE_NO_BRIDGED_FASTDP \
         -e WEAVE_NO_PLUGIN \
@@ -352,6 +353,7 @@ CONTAINER_IFNAME=ethwe
 PORT=${WEAVE_PORT:-6783}
 HTTP_PORT=6784
 PROXY_PORT=12375
+LOCAL_HOST=${WEAVE_LOCAL_HOST:-127.0.0.1}
 PROXY_CONTAINER_NAME=weaveproxy
 COVERAGE_ARGS=""
 [ -n "$COVERAGE" ] && COVERAGE_ARGS="-test.coverprofile=/home/weave/cover.prof --"
@@ -974,7 +976,7 @@ container_ip() {
     case "$status" in
         "true ")
             #echo "$1 container has no IP address; is Docker networking enabled?" >&2
-            CONTAINER_IP=127.0.0.1
+            CONTAINER_IP=$LOCAL_HOST
             ;;
         true*)
             CONTAINER_IP="${status#true }"
@@ -1610,7 +1612,7 @@ launch_router() {
         fi
     fi
 
-    [ "$BRIDGE_TYPE" != bridge ] && NETHOST_OPT="--net=host" && HTTP_IP=127.0.0.1
+    [ "$BRIDGE_TYPE" != bridge ] && NETHOST_OPT="--net=host" && HTTP_IP=$LOCAL_HOST
 
     # Set WEAVE_DOCKER_ARGS in the environment in order to supply
     # additional parameters, such as resource limits, to docker
