@@ -109,7 +109,7 @@ func (alloc *Allocator) Start() {
 func (alloc *Allocator) Stop() {
 	alloc.ticker.Stop()
 	alloc.actionChan <- func() {
-		alloc.db.Close()
+		alloc.checkErr(alloc.db.Close())
 	}
 	alloc.actionChan <- nil
 }
@@ -375,7 +375,7 @@ func (alloc *Allocator) Shutdown() {
 			alloc.gossip.GossipBroadcast(alloc.Gossip())
 			time.Sleep(100 * time.Millisecond)
 		}
-		alloc.db.Close()
+		alloc.checkErr(alloc.db.Close())
 		doneChan <- struct{}{}
 	}
 	<-doneChan
@@ -812,7 +812,9 @@ func (alloc *Allocator) syncOwned(checkExists func(string) bool) {
 		}
 		for _, ident := range idents {
 			if !checkExists(ident) {
-				b.DeleteBucket([]byte(ident))
+				if err := b.DeleteBucket([]byte(ident)); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -880,7 +882,9 @@ func (alloc *Allocator) removeOwned(ident string, addrToFree address.Address) (f
 		if err == nil {
 			found = true
 			if empty(v) {
-				b.DeleteBucket([]byte(ident))
+				if err := b.DeleteBucket([]byte(ident)); err != nil {
+					return err
+				}
 			}
 		} else if err == bolt.ErrBucketNotFound {
 			return nil
