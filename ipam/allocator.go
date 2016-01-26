@@ -984,6 +984,6 @@ func (alloc *Allocator) debugf(fmt string, args ...interface{}) {
 }
 func (alloc *Allocator) checkErr(err error) {
 	if err != nil && err != errBreakLoop {
-		common.Log.Errorf("[allocator %s] %s", alloc.ourName, err)
+		panic(err)
 	}
 }
