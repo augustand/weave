@@ -14,7 +14,8 @@ set -e
 START=${FIRST_WEAVE:-1}
 COUNT=${NUM_WEAVES:-28}
 FINISH=$((START+COUNT-1))
-PORT=6783
+
+SUBNET=192.168.7
 
 weavedir=$(dirname $0)/..
 
@@ -30,28 +31,54 @@ case "$1" in
     launch)
         shift 1
         echo $(date -R) launching
+        sudo ip link add name multiweave type bridge
         for i in $(seq $START $FINISH); do
-            WEAVE_CONTAINER_NAME=weave$i WEAVE_PORT=$((5000+i)) $weavedir/weave launch-router --iface '' --name $(random_mac) --nickname weave$i --port $PORT --no-dns "$@"
+            IP=$SUBNET.$i
+
+            sudo ip addr add $IP/24 dev multiweave
+
+            WEAVE_CONTAINER_NAME=weave$i \
+            WEAVE_LOCAL_HOST=$IP \
+                $weavedir/weave launch-router \
+                --datapath '' \
+                --iface '' \
+                --name $(random_mac) \
+                --nickname weave$i \
+                --host $IP \
+                --no-dns "$@"
         done
         if [ $START -ne 1 ] ; then
-            status=$(docker inspect --format='{{.State.Running}} {{.NetworkSettings.IPAddress}}' weave$((START-1)))
-            PREV="${status#true }"
+            PREV=$SUBNET.$((START-1))
         fi
         echo $(date -R) connecting
         for i in $(seq $START $FINISH); do
+            IP=$SUBNET.$i
             if [ -n "$PREV" ] ; then
                 echo connecting weave$i to $PREV
-                WEAVE_CONTAINER_NAME=weave$i $weavedir/weave connect $PREV
+                WEAVE_CONTAINER_NAME=weave$i \
+                WEAVE_LOCAL_HOST=$IP \
+                    $weavedir/weave connect $PREV
             fi
-            status=$(docker inspect --format='{{.State.Running}} {{.NetworkSettings.IPAddress}}' weave$i)
-            PREV="${status#true }"
+            PREV=$IP
         done
         echo $(date -R) done
         ;;
     stop)
         for i in $(seq $START $FINISH); do
             echo Stopping weave$i
-            WEAVE_CONTAINER_NAME=weave$i $weavedir/weave stop-router
+            IP=$SUBNET.$i
+            WEAVE_CONTAINER_NAME=weave$i \
+            WEAVE_LOCAL_HOST=$IP \
+                $weavedir/weave stop-router
         done
+        sudo ip link del multiweave
+        ;;
+    *)
+            i=$1
+            shift
+            IP=192.168.7.$i
+            WEAVE_CONTAINER_NAME=weave$i \
+            WEAVE_LOCAL_HOST=$IP \
+                $weavedir/weave "$@"
         ;;
 esac
