@@ -349,6 +349,7 @@ BRIDGE=weave
 DATAPATH=datapath
 BRIDGE_IFNAME=vethwe-bridge
 DATAPATH_IFNAME=vethwe-datapath
+PCAP_IFNAME=vethwe-pcap
 CONTAINER_IFNAME=ethwe
 PORT=${WEAVE_PORT:-6783}
 HTTP_PORT=6784
@@ -676,9 +677,10 @@ destroy_bridge() {
         fi
     done
 
-    # Remove any lingering bridged fastdp veth
+    # Remove any lingering bridged fastdp and pcap veths
     ip link del $DATAPATH_IFNAME >/dev/null 2>&1 || true
     ip link del $BRIDGE_IFNAME >/dev/null 2>&1 || true
+    ip link del $PCAP_IFNAME >/dev/null 2>&1 || true
 
     if [ "$DOCKER_BRIDGE" != "$BRIDGE" ] ; then
         run_iptables -t filter -D FORWARD -i $DOCKER_BRIDGE -o $BRIDGE -j DROP 2>/dev/null || true
@@ -806,7 +808,7 @@ router_opts_fastdp() {
 }
 
 router_opts_bridge() {
-    echo "--iface $CONTAINER_IFNAME"
+    echo "--iface $PCAP_IFNAME"
 }
 
 router_opts_bridged_fastdp() {
@@ -831,16 +833,15 @@ setup_router_iface_fastdp() {
 }
 
 setup_router_iface_bridge() {
-    if ! netnsenter ip link show eth0 >/dev/null ; then
-        echo "Perhaps you are running the docker daemon with container networking disabled (-b=none)." >&2
+    ip link show $PCAP_IFNAME >/dev/null 2>&1 && return 0
+    if ! ip link add name $BRIDGE_IFNAME mtu $MTU type veth peer name $PCAP_IFNAME mtu $MTU ||
+       ! ip link set $BRIDGE_IFNAME up ||
+       ! add_iface_bridge $BRIDGE_IFNAME ||
+       ! ip link set $PCAP_IFNAME up ; then
+        ip link del $PCAP_IFNAME >/dev/null 2>&1 || true
+        ip link del $BRIDGE_IFNAME >/dev/null 2>&1 || true
         return 1
     fi
-    # No-op if already attached
-    netnsenter ip link show $CONTAINER_IFNAME >/dev/null 2>&1 && return 0
-
-    connect_container_to_bridge $CONTAINER_IFNAME &&
-        netnsenter ethtool -K eth0 tx off >/dev/null &&
-        netnsenter ip link set $CONTAINER_IFNAME up
 }
 
 setup_router_iface_bridged_fastdp() {
@@ -1548,10 +1549,6 @@ launch_router() {
     IPRANGE=
     IPRANGE_SPECIFIED=
 
-    # DNS_PORT_MAPPING is only used if the router runs in a container
-    # netns.  DNS_ROUTER_OPTS is only used if the router runs in the
-    # host netns.
-    DNS_PORT_MAPPING="-p $DOCKER_BRIDGE_IP:53:53/udp -p $DOCKER_BRIDGE_IP:53:53/tcp"
     DNS_ROUTER_OPTS="--dns-listen-address $DOCKER_BRIDGE_IP:53"
     NO_DNS_OPT=
 
@@ -1586,7 +1583,6 @@ launch_router() {
                 IPRANGE_SPECIFIED=1
                 ;;
             --no-dns)
-                DNS_PORT_MAPPING=
                 DNS_ROUTER_OPTS=
                 NO_DNS_OPT="--no-dns"
                 ARGS="$ARGS $1"
@@ -1612,15 +1608,12 @@ launch_router() {
         fi
     fi
 
-    [ "$BRIDGE_TYPE" != bridge ] && NETHOST_OPT="--net=host" && HTTP_IP=$LOCAL_HOST
-
     # Set WEAVE_DOCKER_ARGS in the environment in order to supply
     # additional parameters, such as resource limits, to docker
     # when launching the weave container.
-    ROUTER_CONTAINER=$(docker run --privileged -d --name=$CONTAINER_NAME \
+    ROUTER_CONTAINER=$(docker run --privileged --net=host -d --name=$CONTAINER_NAME \
         $(docker_sock_options) \
         -p $PORT:$CONTAINER_PORT/tcp -p $PORT:$CONTAINER_PORT/udp \
-        ${NETHOST_OPT:-$DNS_PORT_MAPPING} \
         -e WEAVE_PASSWORD \
         -e WEAVE_CIDR=none \
         $WEAVE_DOCKER_ARGS $IMAGE $COVERAGE_ARGS \
@@ -1628,10 +1621,10 @@ launch_router() {
         $(router_opts_$BRIDGE_TYPE) \
         --ipalloc-range "$IPRANGE" \
         --dns-effective-listen-address $DOCKER_BRIDGE_IP \
-        ${NETHOST_OPT:+$DNS_ROUTER_OPTS} $NO_DNS_OPT \
-        --http-addr $HTTP_IP:$HTTP_PORT \
+        $DNS_ROUTER_OPTS $NO_DNS_OPT \
+        --http-addr $LOCAL_HOST:$HTTP_PORT \
         "$@")
-    with_container_netns_or_die $CONTAINER_NAME setup_router_iface_$BRIDGE_TYPE
+    setup_router_iface_$BRIDGE_TYPE
     attach_router
 }
 
